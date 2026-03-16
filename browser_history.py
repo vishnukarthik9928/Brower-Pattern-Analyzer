@@ -1,0 +1,128 @@
+"""
+Reads browsing history records from Chrome or Microsoft Edge
+by accessing their SQLite history database.
+
+Currently supports Windows, macOS, and Linux (Chrome paths).
+If the database cannot be accessed, the script suggests using
+synthetic sample data instead.
+"""
+
+import os
+import sqlite3
+import shutil
+import yaml
+import pandas as pd
+import platform
+from datetime import datetime, timedelta
+
+
+def locate_history_file(browser_name="chrome"):
+    """
+    Determine the file location of the browser history database
+    based on the operating system and browser type.
+    """
+    os_type = platform.system()
+
+    if os_type == "Windows":
+        if browser_name.lower() == "chrome":
+            return os.path.expanduser(
+                r"~\AppData\Local\Google\Chrome\User Data\Default\History"
+            )
+        if browser_name.lower() == "edge":
+            return os.path.expanduser(
+                r"~\AppData\Local\Microsoft\Edge\User Data\Default\History"
+            )
+
+    elif os_type == "Darwin":  # macOS
+        if browser_name.lower() == "chrome":
+            return os.path.expanduser(
+                "~/Library/Application Support/Google/Chrome/Default/History"
+            )
+
+    elif os_type == "Linux":
+        if browser_name.lower() == "chrome":
+            return os.path.expanduser(
+                "~/.config/google-chrome/Default/History"
+            )
+
+    raise RuntimeError(f"Unsupported environment: {os_type} / {browser_name}")
+
+
+def read_history(days_back=5, browser_name="chrome"):
+    """
+    Pull browsing history entries from the browser database
+    and filter them to only include recent visits.
+    """
+
+    print(f"\nCollecting {browser_name} history for the last {days_back} days...")
+
+    try:
+        history_file = locate_history_file(browser_name)
+
+        if not os.path.exists(history_file):
+            print("⚠ History database not found.")
+            print(f"Expected path: {history_file}")
+            print("Tip: Run generate_sample.py to create mock browsing data.")
+            return None
+
+        # Browser locks the file while running → copy it first
+        os.makedirs("data", exist_ok=True)
+        temp_db = "data/history_copy.db"
+
+        shutil.copy2(history_file, temp_db)
+
+        connection = sqlite3.connect(temp_db)
+
+        sql = """
+        SELECT
+            url,
+            title,
+            datetime(last_visit_time/1000000 - 11644473600,
+                     'unixepoch','localtime') AS visit_time
+        FROM urls
+        ORDER BY last_visit_time DESC
+        """
+
+        history_df = pd.read_sql_query(sql, connection)
+        connection.close()
+
+        os.remove(temp_db)
+
+        # Convert timestamps
+        history_df["visit_time"] = pd.to_datetime(history_df["visit_time"])
+
+        # Filter recent visits
+        time_threshold = datetime.now() - timedelta(days=days_back)
+        history_df = history_df[history_df["visit_time"] >= time_threshold]
+
+        # Clean rows
+        history_df = history_df.dropna(subset=["url", "visit_time"]).copy()
+
+        output_file = "data/browser_history.csv"
+        history_df.to_csv(output_file, index=False)
+
+        print(f"✔ {len(history_df)} entries saved to {output_file}")
+
+        return history_df
+
+    except PermissionError:
+        print("✖ Permission error: close Chrome/Edge before running this script.")
+        return None
+
+    except Exception as err:
+        print("✖ Failed to extract history.")
+        print("Error:", err)
+        print("Suggestion: use generate_sample.py for synthetic data.")
+        return None
+
+
+if __name__ == "__main__":
+
+    # Load configuration file
+    with open("config.yaml") as config_file:
+        config = yaml.safe_load(config_file)
+
+    read_history(
+        days_back=config["data"]["days_window"],
+        browser_name=config["browser"]["type"]
+    )

@@ -1,0 +1,12 @@
+data:
+  days_window: 7
+
+browser:
+  type: chrome
+
+ram_logger:
+  duration_minutes: 30
+  interval_seconds: 10
+
+paths:
+  ram_log: data/ram_log.csv
