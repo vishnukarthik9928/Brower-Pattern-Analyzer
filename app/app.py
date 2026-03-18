@@ -7,6 +7,66 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import os
 
+# ─────────────────────────────────────────
+# 🧠 LLM FUNCTION
+# ─────────────────────────────────────────
+def generate_ai_recommendation_llm(duration, pages, unique_categories, avg_ram, switch_rate,
+                                   category, next_category, cluster):
+
+    prompt = f"""
+You are an AI productivity assistant.
+
+Convert the following session data into SHORT actionable recommendations.
+
+DATA:
+- Duration: {duration}
+- Pages: {pages}
+- Categories: {unique_categories}
+- RAM: {avg_ram}
+- Switch Rate: {switch_rate}
+- Cluster: {cluster}
+- Current Category: {category}
+- Predicted Next: {next_category}
+
+IMPORTANT:
+- DO NOT explain
+- DO NOT give paragraphs
+- ONLY output bullet recommendations
+- Each line must start with an emoji
+- Keep each line short (1 sentence)
+
+Rules:
+- If cluster = 2 → focus on performance optimization
+- If cluster = 1 → focus on reducing distractions
+- If cluster = 0 → focus on maintaining balance
+
+Example format:
+🚀 Focus session detected. Maintain concentration.
+💾 High RAM usage. Close unused tabs.
+📱 Social activity detected. Reduce distractions.
+
+Now generate output:
+"""
+
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "phi3",
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_predict": 150
+                }
+            },
+            timeout=120
+        )
+
+        return response.json().get("response", "⚠️ No response from model.")
+
+    except Exception as e:
+        return f"❌ LLM Error: {e}"
 # ---------------------------------------------------
 # Paths
 # ---------------------------------------------------
@@ -207,104 +267,26 @@ next_category = encoder.inverse_transform([pred_idx])[0]
 
 st.info(f"Next likely category: {next_category}")
 
-# ---------------------------------------------------
-# AI Productivity Score
-# ---------------------------------------------------
+# ─────────────────────────────────────────
+# 🤖 AI RECOMMENDATION 
+# ─────────────────────────────────────────
+st.subheader("🤖 AI Recommendation (Local LLM)")
 
-st.header("🧠 AI Productivity Score")
+if st.button("🚀 Generate Recommendation"):
 
-score = 50
+    with st.spinner("Thinking..."):
 
-# cluster influence
-if cluster == 3:
-    score += 25
-elif cluster == 2:
-    score += 10
-elif cluster == 1:
-    score -= 10
-elif cluster == 0:
-    score -= 5
+        recommendation = generate_ai_recommendation_llm(
+            duration,
+            pages,
+            unique_categories,
+            avg_ram,
+            switch_rate,
+            selected_category,
+            predicted_category,
+            cluster
+        )
 
-# category influence
-if category == "learning":
-    score += 15
-elif category == "work":
-    score += 10
-elif category == "social":
-    score -= 20
-elif category == "entertainment":
-    score -= 10
-
-# session behaviour
-if session_length > 20:
-    score += 10
-
-if time_spent > 1200:
-    score += 5
-
-# time of day
-if hour >= 22:
-    score -= 15
-
-# RAM behaviour
-if ram_usage > 3500:
-    score -= 10
-
-score = max(0, min(score, 100))
-
-st.metric("Productivity Score", f"{score}/100")
-
-if score >= 75:
-    st.success("🔥 High focus session detected")
-elif score >= 50:
-    st.info("🙂 Moderate productivity")
-else:
-    st.warning("⚠️ High distraction risk")
-
-# ---------------------------------------------------
-# Smart Recommendations
-# ---------------------------------------------------
-
-st.header("🎯 Smart Recommendations")
-
-recs = []
-
-# cluster based recommendations
-if cluster == 3:
-    recs.append("🚀 Deep work session detected. Maintain focus and avoid distractions.")
-
-elif cluster == 2:
-    recs.append("📖 Normal browsing session. Try switching to productive tasks.")
-
-elif cluster == 1:
-    recs.append("⚡ Quick browsing pattern detected. Consider focusing on a single task.")
-
-elif cluster == 0:
-    recs.append("💾 High RAM short session detected. You may have many tabs open.")
-
-# behaviour recommendations
-if ram_usage > 3000:
-    recs.append("💾 High RAM usage detected. Close unused tabs or restart browser.")
-
-if session_length > 25:
-    recs.append("🧠 Long session detected. Take a short break to maintain productivity.")
-
-if hour >= 22:
-    recs.append("🌙 Late-night browsing detected. Consider resting soon.")
-
-# category recommendations
-if category == "social":
-    recs.append("📱 Social media activity detected. Limit distractions for better focus.")
-
-elif category == "learning":
-    recs.append("📚 Learning session detected. Good time to take notes or summarize concepts.")
-
-elif category == "entertainment":
-    recs.append("🎬 Entertainment browsing detected. Balance it with productive work.")
-
-# AI prediction insight
-recs.append(f"🤖 Based on behavior, your next likely category is **{next_category}**.")
-
-for r in recs:
-    st.success(r)
+    st.success("✅ Recommendation Generated")
+    st.write(recommendation)
 
